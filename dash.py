@@ -5,12 +5,13 @@ import plotly.express as px
 from query import *
 from datetime import datetime
 from streamlit_modal import Modal
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="Remama",  # título da página
     page_icon=":dragon:",  # ícone da página (opcional)
     layout="centered",  # ou "wide", se preferir layout mais amplo
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state='expanded'    #"collapsed"
 )
 
 query = "SELECT * FROM tb_dados"    # Consulta com o banco de dados.
@@ -19,6 +20,7 @@ df = conexao(query)                 # Carregar os dados do MySQL.
 df['tempo_registro'] = pd.to_datetime(df['tempo_registro'])  # Converter para datetime
 
 # MENU LATERAL
+st.sidebar.image('images/remama-logo.png', width=200)
 st.sidebar.header('Selecione a informação para gerar o gráfico')
 
 # Seleção de colunas X
@@ -31,7 +33,7 @@ colunaX = st.sidebar.selectbox(
 # Seleção de colunas Y
 colunaY = st.sidebar.selectbox(
     'Eixo Y',
-    options=['tempo_registro', 'oximetro_saturacao_oxigenio', 'oximetro_frequencia_pulso', 'frequencia_cardiaca', 'temperatura'],
+    options=['oximetro_saturacao_oxigenio', 'oximetro_frequencia_pulso', 'frequencia_cardiaca', 'temperatura'],
     index=1
 )
 
@@ -80,6 +82,35 @@ if filtros('temperatura'):
         max_value=float(df['temperatura'].max()),
         value=(float(df['temperatura'].min()), float(df['temperatura'].max())),
         step=0.1
+    )
+
+# Tempo Registro
+if filtros("tempo_registro"):
+    # Extrair as datas mínimas e máximas em formato de datetime
+    min_data = df["tempo_registro"].min()
+    max_data = df["tempo_registro"].max()
+
+    # Exibir dois campos de data para seleção de intervalo no sidebar
+    data_inicio = st.sidebar.date_input(
+        "Data de Início", 
+        min_data.date(), 
+        min_value=min_data.date(), 
+        max_value=max_data.date(),
+        format= "DD-MM-YYYY"
+    )
+    
+    data_fim = st.sidebar.date_input(
+        "Data de Fim", 
+        max_data.date(), 
+        min_value=min_data.date(), 
+        max_value=max_data.date(),
+        format= "DD-MM-YYYY"
+    )
+
+    # Converter as datas selecionadas para datetime, incluindo hora
+    tempo_registro_range = (
+        pd.to_datetime(data_inicio),
+        pd.to_datetime(data_fim) + pd.DateOffset(days=1) - pd.Timedelta(seconds=1)
     )
 
 # Cria uma cópia do df original
@@ -148,12 +179,13 @@ def graficos():
         [
             'Gráfico de Barras',
             'Gráfico Linear',
-            'Gráfico X',
+            'Gráfico de Área',
             'Gráfico Y'
         ]
     )
-
+    
     with grafico1:
+
         if df_selecionado.empty:
             st.write('Nenhum dado disponível para gerar o gráfico.')
             return
@@ -171,10 +203,10 @@ def graficos():
                 y='Contagem',
                 orientation='h',
                 title=f'Contagem de Registros por {colunaX.capitalize()}',
-                color_discrete_sequence=['#0083b8'],
+                color_discrete_sequence=['#B388EB'],
                 template='plotly_white'
             )
-            st.plotly_chart(fig_valores, use_container_width=True)
+            st.plotly_chart(fig_valores, use_container_width=True, key="grafico_barras")
 
         except Exception as e:
             st.error(f'Erro ao criar o gráfico: {e}')
@@ -203,8 +235,53 @@ def graficos():
         except Exception as e:
             st.error(f"Erro ao criar gráfico de linhas: {e}")
         
-        st.plotly_chart(fig_valores2, use_container_width=True)
+        st.plotly_chart(fig_valores2, use_container_width=True, key="grafico_linha")
 
+    with grafico3:
+        if df_selecionado.empty:
+            st.write('Nenhum dado disponível para gerar o gráfico.')
+            return
+
+        if colunaX == colunaY:
+            st.warning('Selecione colunas diferentes para os eixos X e Y')
+            return
+
+        try:
+            grupo_dados_X = df_selecionado.groupby(by=[colunaX]).size().reset_index(name='Contagem')
+            grupo_dados_Y = df_selecionado.groupby(by=[colunaY]).size().reset_index(name='Contagem')
+
+            fig_valores = go.Figure()
+
+            fig_valores.add_trace(go.Scatter(
+                x=grupo_dados_X[colunaX],       # Se pa o X é .count quantidade
+                y=grupo_dados_X['Contagem'],       # Y fica com .size, ou seja tamanho
+                fill='tozeroy',
+                mode='none',
+                name=f"Área de {colunaX.capitalize()}"
+            ))
+
+            # Adicionando a segunda trace (dados do eixo Y)
+            fig_valores.add_trace(go.Scatter(
+                x=grupo_dados_Y[colunaY],
+                y=grupo_dados_Y['Contagem'],
+                fill='tonexty',
+                mode='none',
+                name=f"Área de {colunaY.capitalize()}"
+            ))
+
+            # Estética
+            fig_valores.update_layout(
+                title=f'Gráfico de Área: {colunaX.capitalize()} vs {colunaY.capitalize()}',
+                xaxis_title=colunaX.capitalize(),
+                yaxis_title='Contagem',
+                template='plotly_white'
+            )
+
+            st.plotly_chart(fig_valores, use_container_width=True, key="grafico_area")
+        except Exception as e:
+            st.error(f"Erro ao criar gráfico de linhas: {e}")
+        
+        #st.plotly_chart(fig_valores2, use_container_width=True)
 
 # Exibir as funções
 Home()
